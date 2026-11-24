@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant short (@media (max-height: 520px));
+
 @theme {
   --font-display: "Barlow Condensed", system-ui, sans-serif;
   --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
@@ -37,12 +39,29 @@
   }
 }
 
+@keyframes flashWhiteTurn {
+  0%,
+  100% {
+    border-color: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.65), 0 0 18px rgba(255, 255, 255, 0.45);
+  }
+  50% {
+    border-color: rgba(255, 255, 255, 0.55);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 8px rgba(255, 255, 255, 0.25);
+  }
+}
+
 .animate-card-enter {
   animation: cardEnter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.animate-turn-flash {
+  animation: flashWhiteTurn 1.05s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-card-enter {
+  .animate-card-enter,
+  .animate-turn-flash {
     animation: none;
   }
 }

@@ -8,6 +8,9 @@ import {
   placeBid,
   passBid,
   selectTrump,
+  selectSeventhCardTrump,
+  selectJokerNoTrump,
+  canMatchBid,
   getLegalCards,
   canRevealTrump,
   revealTrump,
@@ -22,6 +25,8 @@ import {
   getClientGameView,
   canCallSingleHand,
   callSingleHand,
+  canSurrender,
+  surrenderRound,
   type TwentyNineState,
   type SeatIndex,
 } from './twentyNine';
@@ -74,11 +79,12 @@ test('6 of Hearts and 6 of Spades tug-of-war pip scoring closes hearts and flips
   assert.equal(getSixCardPipState(score).blackSpadesRevealed, 6);
 });
 
-test('bidding phase handles passes, winning bid, and 4-pass redeal', () => {
+test('adjacent 2-player bidding duel supports matching opponent bid, passing clockwise, and 4-pass redeal', () => {
   let state = startRound(createFullFourPlayerRoom(), { rng: () => 0.42 });
   assert.equal(state.phase, 'bidding');
   assert.equal(state.bidTurnSeat, 1);
 
+  // Everyone passes -> redeal advances dealer to 1, first duel pair 2 vs 3
   state = passBid(state, 1, () => 0.11);
   state = passBid(state, 2, () => 0.11);
   state = passBid(state, 3, () => 0.11);
@@ -88,15 +94,33 @@ test('bidding phase handles passes, winning bid, and 4-pass redeal', () => {
   assert.equal(state.dealerSeat, 1);
   assert.equal(state.bidTurnSeat, 2);
 
-  state = placeBid(state, 2, 16);
-  state = placeBid(state, 3, 18);
-  assert.throws(() => placeBid(state, 0, 17));
+  // Seat 2 (OG) bids 19, Seat 3 (challenger) bids 20
+  state = placeBid(state, 2, 19);
+  assert.equal(state.bidTurnSeat, 3);
+  assert.equal(canMatchBid(state, 3), false);
+  assert.throws(() => placeBid(state, 3, 19));
+
+  state = placeBid(state, 3, 20);
+  assert.equal(state.bidTurnSeat, 2);
+  // OG bidder (Seat 2) can match Seat 3 at 20 without raising!
+  assert.equal(canMatchBid(state, 2), true);
+  state = placeBid(state, 2, 20);
+  assert.equal(state.highestBid, 20);
+  assert.equal(state.highestBidderSeat, 2);
+  assert.equal(state.bidTurnSeat, 3);
+  // Challenger Seat 3 cannot match 20, must bid 21+ or pass
+  assert.equal(canMatchBid(state, 3), false);
+  assert.throws(() => placeBid(state, 3, 20));
+
+  // Seat 3 passes -> bidding moves to next person in circle (Seat 0)
+  state = passBid(state, 3);
+  assert.equal(state.bidTurnSeat, 0);
   state = passBid(state, 0);
+  assert.equal(state.bidTurnSeat, 1);
   state = passBid(state, 1);
-  state = passBid(state, 2);
   assert.equal(state.phase, 'trump_select');
-  assert.equal(state.highestBidderSeat, 3);
-  assert.equal(state.highestBid, 18);
+  assert.equal(state.highestBidderSeat, 2);
+  assert.equal(state.highestBid, 20);
 });
 
 test('trump selection deals remaining 4 cards and hides trump from opponents', () => {
@@ -118,6 +142,70 @@ test('trump selection deals remaining 4 cards and hides trump from opponents', (
   assert.equal(getClientGameView(state, 'p1').trumpSuit, 'H');
   assert.equal(getClientGameView(state, 'p0').trumpSuit, null);
   assert.equal(getClientGameView(state, 'p2').trumpSuit, null);
+});
+
+test('7th card trump hides suit from everyone including bidder until revealed', () => {
+  let state = startRound(createFullFourPlayerRoom(), { rng: () => 0.25 });
+  state = placeBid(state, 1, 16);
+  state = passBid(state, 2);
+  state = passBid(state, 3);
+  state = passBid(state, 0);
+  const expectedSeventh = state.stock[1][2];
+
+  state = selectSeventhCardTrump(state, 1);
+  assert.equal(state.phase, 'playing');
+  assert.equal(state.trumpMode, 'seventh_card');
+  assert.equal(state.trumpSuit, expectedSeventh.suit);
+  assert.equal(state.trumpRevealed, false);
+  // Even bidder cannot see trump suit until revealed
+  assert.equal(getClientGameView(state, 'p1').trumpSuit, null);
+  assert.equal(getClientGameView(state, 'p0').trumpSuit, null);
+
+  // Simulate Seat 2 void in led suit revealing the 7th card
+  state.currentTrick = [{ seat: 1, card: { id: '7-S', suit: 'S', rank: '7' } }];
+  state.hands[2] = state.hands[2].filter((c) => c.suit !== 'S');
+  state.turnSeat = 2;
+  assert.equal(canRevealTrump(state, 2), true);
+  state = revealTrump(state, 2);
+  assert.equal(state.trumpRevealed, true);
+  assert.equal(getClientGameView(state, 'p1').trumpSuit, expectedSeventh.suit);
+  assert.equal(getClientGameView(state, 'p0').trumpSuit, expectedSeventh.suit);
+});
+
+test('Joker card as trump sets No Trump and stays secret until revealed', () => {
+  let state = startRound(createFullFourPlayerRoom(), { rng: () => 0.25 });
+  state = placeBid(state, 1, 16);
+  state = passBid(state, 2);
+  state = passBid(state, 3);
+  state = passBid(state, 0);
+
+  state = selectJokerNoTrump(state, 1);
+  assert.equal(state.phase, 'playing');
+  assert.equal(state.trumpMode, 'joker_no_trump');
+  assert.equal(state.trumpSuit, null);
+  assert.equal(state.trumpRevealed, false);
+
+  // Void opponent can reveal hidden card to discover Joker (No Trump)
+  state.currentTrick = [{ seat: 1, card: { id: 'A-S', suit: 'S', rank: 'A' } }];
+  state.hands[2] = [{ id: 'J-H', suit: 'H', rank: 'J' }];
+  state.turnSeat = 2;
+  assert.equal(canRevealTrump(state, 2), true);
+  state = revealTrump(state, 2);
+  assert.equal(state.trumpRevealed, true);
+  assert.equal(state.trumpSuit, null);
+
+  // Even a Jack of another suit does NOT beat the led Ace in Joker (No Trump)
+  const winner = resolveTrickWinner(
+    [
+      { seat: 1, card: { id: 'A-S', suit: 'S', rank: 'A' } },
+      { seat: 2, card: { id: 'J-H', suit: 'H', rank: 'J' } },
+      { seat: 3, card: { id: 'K-S', suit: 'S', rank: 'K' } },
+      { seat: 0, card: { id: 'Q-S', suit: 'S', rank: 'Q' } },
+    ],
+    state.trumpSuit,
+    state.trumpRevealed
+  );
+  assert.equal(winner, 1);
 });
 
 test('trick winner respects unrevealed vs revealed trump and follow-suit rules', () => {
@@ -388,3 +476,193 @@ test('single hand called after 8 cards dealt awards +3 points when caller sweeps
   assert.equal(state.lastRoundSummary?.contractMade, true);
   assert.equal(state.lastRoundSummary?.singleHandTricksWon, 8);
 });
+
+test('surrender concedes only the current round and awards exact roundStake (e.g. 2 pts if doubled, not all 6)', () => {
+  let state = startRound(createFullFourPlayerRoom(), { rng: () => 0.1 });
+  // Cannot surrender before a contract is set
+  assert.equal(canSurrender(state, 0), false);
+  assert.equal(canSurrender(state, 1), false);
+
+  // Black (Seat 1) overbids 20, Red (Seat 0) Doubles to 2 pts
+  state = placeBid(state, 1, 20);
+  state = passBid(state, 2);
+  state = passBid(state, 3);
+  state = passBid(state, 0);
+  state = selectTrump(state, 1, 'H');
+  state = doubleStake(state, 0);
+  assert.equal(state.roundStake, 2);
+
+  // Bidding team (Black) can surrender even at 0-0; winning defenders (Red) at 0-0 cannot
+  assert.equal(canSurrender(state, 1), true);
+  assert.equal(canSurrender(state, 3), true);
+  assert.equal(canSurrender(state, 0), false);
+  assert.throws(() => surrenderRound(state, 0), /cannot surrender right now/);
+
+  // Black surrenders: Red wins THAT round for 2 Hearts (not all 6!), game moves to round_over
+  const afterSurrender = surrenderRound(state, 1);
+  assert.equal(afterSurrender.phase, 'round_over');
+  assert.equal(afterSurrender.netScore, 2); // Only 2 Hearts revealed, NOT 6!
+  assert.equal(afterSurrender.lastRoundSummary?.isSurrender, true);
+  assert.equal(afterSurrender.lastRoundSummary?.roundStake, 2);
+  assert.equal(afterSurrender.lastRoundSummary?.roundWinnerTeam, 0);
+
+  // If netScore was already -5 (Black leading 5 Spades) and Black surrenders a 2-pt doubled round, tug-of-war closes 2 Spades (-3)
+  const tugOfWarSurrender = surrenderRound({ ...state, netScore: -5 }, 1);
+  assert.equal(tugOfWarSurrender.phase, 'round_over');
+  assert.equal(tugOfWarSurrender.netScore, -3);
+
+  // Only reaches match_over when the roundStake pushes netScore to +/-6
+  const finishingSurrender = surrenderRound({ ...state, netScore: 5 }, 1);
+  assert.equal(finishingSurrender.phase, 'match_over');
+  assert.equal(finishingSurrender.netScore, 6);
+});
+
+test('if everyone reaches last 2 cards (Trick 7) and no one views trump before 2nd-last card completes, round draws with 0 points', () => {
+  let state = startRound(createFullFourPlayerRoom(), { rng: () => 0.12 });
+  state = placeBid(state, 1, 17);
+  state = passBid(state, 2);
+  state = passBid(state, 3);
+  state = passBid(state, 0);
+  state = selectTrump(state, 1, 'H');
+
+  // Jump cleanly to start of Trick 7 (every player has last 2 cards, trump still hidden)
+  state = {
+    ...state,
+    netScore: 2,
+    tricksCompleted: 6,
+    trumpRevealed: false,
+    leadSeat: 1,
+    turnSeat: 1,
+    currentTrick: [],
+    hands: [
+      [
+        { id: '7-S', suit: 'S', rank: '7' },
+        { id: '7-D', suit: 'D', rank: '7' },
+      ],
+      [
+        { id: 'A-S', suit: 'S', rank: 'A' },
+        { id: '8-D', suit: 'D', rank: '8' },
+      ],
+      [
+        { id: '8-S', suit: 'S', rank: '8' },
+        { id: '9-D', suit: 'D', rank: '9' },
+      ],
+      [
+        { id: '10-S', suit: 'S', rank: '10' },
+        { id: 'Q-D', suit: 'D', rank: 'Q' },
+      ],
+    ],
+  };
+
+  // All 4 players play their 2nd-last card without anyone revealing trump
+  state = playCard(state, 1, 'A-S');
+  state = playCard(state, 2, '8-S');
+  state = playCard(state, 3, '10-S');
+  state = playCard(state, 0, '7-S');
+  assert.equal(state.phase, 'trick_pause');
+
+  state = advanceAfterTrickPause(state);
+  assert.equal(state.phase, 'round_over');
+  assert.equal(state.lastRoundSummary?.isDraw, true);
+  assert.equal(state.lastRoundSummary?.roundStake, 0);
+  assert.equal(state.netScore, 2); // No one gets points; netScore stays unchanged
+});
+
+test('if someone reveals trump during Trick 7 before 2nd-last card completes, round continues to Trick 8', () => {
+  let state = startRound(createFullFourPlayerRoom(), { rng: () => 0.12 });
+  state = placeBid(state, 1, 17);
+  state = passBid(state, 2);
+  state = passBid(state, 3);
+  state = passBid(state, 0);
+  state = selectTrump(state, 1, 'H');
+
+  state = {
+    ...state,
+    tricksCompleted: 6,
+    trumpRevealed: false,
+    leadSeat: 1,
+    turnSeat: 1,
+    currentTrick: [],
+    hands: [
+      [
+        { id: '7-S', suit: 'S', rank: '7' },
+        { id: '7-D', suit: 'D', rank: '7' },
+      ],
+      [
+        { id: 'A-S', suit: 'S', rank: 'A' },
+        { id: '8-D', suit: 'D', rank: '8' },
+      ],
+      [
+        { id: 'J-H', suit: 'H', rank: 'J' },
+        { id: '9-D', suit: 'D', rank: '9' },
+      ],
+      [
+        { id: '10-S', suit: 'S', rank: '10' },
+        { id: 'Q-D', suit: 'D', rank: 'Q' },
+      ],
+    ],
+  };
+
+  state = playCard(state, 1, 'A-S');
+  // Seat 2 is void in Spades and views/reveals trump during Trick 7 before playing 2nd-last card
+  assert.equal(canRevealTrump(state, 2), true);
+  state = revealTrump(state, 2);
+  state = playCard(state, 2, 'J-H');
+  state = playCard(state, 3, '10-S');
+  state = playCard(state, 0, '7-S');
+
+  state = advanceAfterTrickPause(state);
+  assert.equal(state.phase, 'playing'); // Continues cleanly to Trick 8!
+  assert.equal(state.tricksCompleted, 7);
+});
+
+test('when Gwen starts & passes, Miguel becomes OG bidder vs Peter, and after Miguel passes Miles challenges Peter', () => {
+  const base = createInitialRoomState('DUEL99', { playerId: 'p0', name: 'Peter' });
+  base.seats[1] = { seat: 1, playerId: 'p1', name: 'Miles', isBot: false, connected: true, ready: true };
+  base.seats[2] = { seat: 2, playerId: 'p2', name: 'Gwen', isBot: false, connected: true, ready: true };
+  base.seats[3] = { seat: 3, playerId: 'p3', name: 'Miguel', isBot: false, connected: true, ready: true };
+  // Simulate Round 2 where dealerSeat = 1 (Miles), so Seat 2 (Gwen) starts bidding
+  base.roundNumber = 1;
+  base.dealerSeat = 0;
+
+  let state = startRound(base, { rng: () => 0.25 });
+  assert.equal(state.dealerSeat, 1);
+  assert.equal(state.bidTurnSeat, 2); // Gwen starts
+  assert.equal(state.duelDefenderSeat, 2);
+  assert.equal(state.duelChallengerSeat, 3); // Miguel
+
+  // Gwen passes -> Miguel becomes OG bidder competing with Peter
+  state = passBid(state, 2);
+  assert.equal(state.bidTurnSeat, 3);
+  assert.equal(state.duelDefenderSeat, 3);
+  assert.equal(state.duelChallengerSeat, 0);
+
+  // Miguel bids 16, Peter outbids 17, Miguel passes
+  state = placeBid(state, 3, 16);
+  assert.equal(state.bidTurnSeat, 0);
+  state = placeBid(state, 0, 17);
+  assert.equal(state.bidTurnSeat, 3);
+  state = passBid(state, 3);
+
+  // Peter becomes defender and Miles MUST get the bid turn to challenge Peter!
+  assert.equal(state.phase, 'bidding');
+  assert.equal(state.duelDefenderSeat, 0);
+  assert.equal(state.duelChallengerSeat, 1);
+  assert.equal(state.bidTurnSeat, 1);
+
+  // Miles bids 18, and Peter can Match 18!
+  state = placeBid(state, 1, 18);
+  assert.equal(state.bidTurnSeat, 0);
+  assert.equal(canMatchBid(state, 0), true);
+  state = placeBid(state, 0, 18);
+  assert.equal(state.highestBidderSeat, 0);
+  assert.equal(state.bidTurnSeat, 1);
+
+  // When Miles finally passes, status explicitly confirms Miles passed and Peter wins
+  state = passBid(state, 1);
+  assert.equal(state.phase, 'trump_select');
+  assert.equal(state.highestBidderSeat, 0);
+  assert.match(state.statusMessage, /Miles passed — Peter won the bid at 18/);
+});
+
+

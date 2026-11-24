@@ -41,6 +41,17 @@ export interface LastTrickSummary {
   hadLastTrickBonus: boolean;
 }
 
+export type TrumpMode = 'suit' | 'seventh_card' | 'joker_no_trump' | 'single_hand';
+
+export interface ChatMessage {
+  id: string;
+  playerId: string;
+  senderName: string;
+  seat: SeatIndex | null;
+  text: string;
+  createdAt: number;
+}
+
 export interface RoundSummary {
   roundNumber: number;
   bidderSeat: SeatIndex;
@@ -49,6 +60,11 @@ export interface RoundSummary {
   effectiveBid: number;
   roundStake: number;
   isSingleHand: boolean;
+  isDraw?: boolean;
+  drawReason?: string;
+  isSurrender?: boolean;
+  surrenderedByTeam?: TeamIndex;
+  trumpMode: TrumpMode;
   singleHandTricksWon: number;
   marriageDeclaredByTeam: TeamIndex | null;
   trumpSuit: Suit | null;
@@ -68,15 +84,19 @@ export interface TwentyNineState {
   hands: [Card[], Card[], Card[], Card[]];
   stock: [Card[], Card[], Card[], Card[]];
 
-  // Bidding
+  // Adjacent 2-Player Bidding Duel
   bidTurnSeat: SeatIndex;
+  duelDefenderSeat: SeatIndex | null;
+  duelChallengerSeat: SeatIndex | null;
   highestBid: number | null;
   highestBidderSeat: SeatIndex | null;
   passedSeats: [boolean, boolean, boolean, boolean];
-  bidHistory: Array<{ seat: SeatIndex; action: 'bid' | 'pass'; amount?: number }>;
+  bidHistory: Array<{ seat: SeatIndex; action: 'bid' | 'match' | 'pass'; amount?: number }>;
 
-  // Trump, Marriage, Single Hand & Round Stake
+  // Trump, 7th Card, Joker No Trump, Marriage, Single Hand & Round Stake
+  trumpMode: TrumpMode | null;
   trumpSuit: Suit | null;
+  seventhCard: Card | null;
   trumpRevealed: boolean;
   trumpRevealedBySeat: SeatIndex | null;
   marriageDeclaredByTeam: TeamIndex | null;
@@ -113,11 +133,15 @@ export interface ClientGameView {
   roundNumber: number;
   dealerSeat: SeatIndex;
   bidTurnSeat: SeatIndex;
+  duelDefenderSeat: SeatIndex | null;
+  duelChallengerSeat: SeatIndex | null;
   highestBid: number | null;
   highestBidderSeat: SeatIndex | null;
   passedSeats: [boolean, boolean, boolean, boolean];
-  bidHistory: Array<{ seat: SeatIndex; action: 'bid' | 'pass'; amount?: number }>;
+  bidHistory: Array<{ seat: SeatIndex; action: 'bid' | 'match' | 'pass'; amount?: number }>;
+  trumpMode: TrumpMode | null;
   trumpSuit: Suit | null;
+  seventhCard: Card | null;
   trumpRevealed: boolean;
   trumpRevealedBySeat: SeatIndex | null;
   marriageDeclaredByTeam: TeamIndex | null;
@@ -141,6 +165,9 @@ export interface ClientGameView {
   canDeclareMarriage: boolean;
   canDoubleStake: boolean;
   canCallSingleHand: boolean;
+  canMatchCurrentBid: boolean;
+  canSurrender: boolean;
+  minBidAmount: number;
 }
 
 export const SUITS: Suit[] = ['S', 'H', 'D', 'C'];
@@ -282,11 +309,15 @@ export function createInitialRoomState(roomCode: string, host: { playerId: strin
     hands: [[], [], [], []],
     stock: [[], [], [], []],
     bidTurnSeat: 1,
+    duelDefenderSeat: 1,
+    duelChallengerSeat: 2,
     highestBid: null,
     highestBidderSeat: null,
     passedSeats: [false, false, false, false],
     bidHistory: [],
+    trumpMode: null,
     trumpSuit: null,
+    seventhCard: null,
     trumpRevealed: false,
     trumpRevealedBySeat: null,
     marriageDeclaredByTeam: null,
@@ -336,8 +367,10 @@ export function startRound(
   const nextDealer: SeatIndex =
     state.roundNumber === 0 && !options?.isRedeal ? 0 : (((state.dealerSeat + 1) % 4) as SeatIndex);
   const firstBidder: SeatIndex = ((nextDealer + 1) % 4) as SeatIndex;
+  const firstChallenger: SeatIndex = ((firstBidder + 1) % 4) as SeatIndex;
   const nextRoundNumber = options?.isRedeal ? state.roundNumber : state.roundNumber + 1;
   const bidderName = state.seats[firstBidder]?.name ?? `Seat ${firstBidder + 1}`;
+  const challengerName = state.seats[firstChallenger]?.name ?? `Seat ${firstChallenger + 1}`;
 
   return {
     ...state,
@@ -347,11 +380,15 @@ export function startRound(
     hands,
     stock,
     bidTurnSeat: firstBidder,
+    duelDefenderSeat: firstBidder,
+    duelChallengerSeat: firstChallenger,
     highestBid: null,
     highestBidderSeat: null,
     passedSeats: [false, false, false, false],
     bidHistory: [],
+    trumpMode: null,
     trumpSuit: null,
+    seventhCard: null,
     trumpRevealed: false,
     trumpRevealedBySeat: null,
     marriageDeclaredByTeam: null,
@@ -368,26 +405,36 @@ export function startRound(
     lastTrick: null,
     lastRoundSummary: null,
     statusMessage: options?.isRedeal
-      ? `Everyone passed — re-dealt! ${bidderName} opens bidding.`
-      : `Round ${nextRoundNumber} dealt. ${bidderName} opens bidding (16–28).`,
+      ? `Everyone passed — re-dealt! ${bidderName} vs ${challengerName} open bidding.`
+      : `Round ${nextRoundNumber} dealt. ${bidderName} vs ${challengerName} open bidding (16–28).`,
   };
 }
 
-function findNextActiveBidder(
+function findNextActiveSeatExcluding(
   fromSeat: SeatIndex,
+  excludeSeat: SeatIndex | null,
   passedSeats: [boolean, boolean, boolean, boolean]
-): SeatIndex {
+): SeatIndex | null {
   for (let offset = 1; offset <= 4; offset++) {
     const candidate = ((fromSeat + offset) % 4) as SeatIndex;
-    if (!passedSeats[candidate]) {
+    if (candidate !== excludeSeat && !passedSeats[candidate]) {
       return candidate;
     }
   }
-  return fromSeat;
+  return null;
 }
 
-export function getMinimumNextBid(state: TwentyNineState): number {
-  return state.highestBid === null ? 16 : state.highestBid + 1;
+export function canMatchBid(state: TwentyNineState, seat: SeatIndex): boolean {
+  if (state.phase !== 'bidding') return false;
+  if (state.bidTurnSeat !== seat) return false;
+  if (state.highestBid === null || state.highestBidderSeat === null) return false;
+  return state.duelDefenderSeat === seat && state.highestBidderSeat !== seat;
+}
+
+export function getMinimumNextBid(state: TwentyNineState, seat: SeatIndex = state.bidTurnSeat): number {
+  if (state.highestBid === null) return 16;
+  if (canMatchBid(state, seat)) return state.highestBid;
+  return state.highestBid + 1;
 }
 
 export function placeBid(
@@ -405,36 +452,56 @@ export function placeBid(
   if (state.passedSeats[seat]) {
     throw new Error('You already passed this round.');
   }
-  const minBid = getMinimumNextBid(state);
+  const minBid = getMinimumNextBid(state, seat);
   if (!Number.isInteger(amount) || amount < minBid || amount > 28) {
     throw new Error(`Bid must be an integer between ${minBid} and 28.`);
   }
 
+  const isMatch = state.highestBid !== null && amount === state.highestBid && canMatchBid(state, seat);
   const playerName = state.seats[seat]?.name ?? `Seat ${seat + 1}`;
-  const bidHistory = [...state.bidHistory, { seat, action: 'bid' as const, amount }];
+  const bidHistory = [
+    ...state.bidHistory,
+    { seat, action: (isMatch ? 'match' : 'bid') as 'bid' | 'match', amount },
+  ];
   const activeCount = state.passedSeats.filter((p) => !p).length;
 
-  if (activeCount === 1 || amount === 28) {
+  // Immediate win if all others passed OR if 28 is held by defender (challenger cannot bid 29)
+  const defenderExistsAndActive =
+    state.duelDefenderSeat !== null && !state.passedSeats[state.duelDefenderSeat];
+  const canDefenderStillMatch28 =
+    amount === 28 && seat === state.duelChallengerSeat && defenderExistsAndActive;
+
+  if (activeCount === 1 || (amount === 28 && !canDefenderStillMatch28)) {
     return {
       ...state,
       highestBid: amount,
       highestBidderSeat: seat,
       bidHistory,
       phase: 'trump_select',
-      statusMessage: `${playerName} won the bid at ${amount}. Choosing hidden trump suit...`,
+      statusMessage: `${playerName} won the bid at ${amount}. Choosing hidden trump...`,
     };
   }
 
-  const nextBidder = findNextActiveBidder(seat, state.passedSeats);
-  const nextName = state.seats[nextBidder]?.name ?? `Seat ${nextBidder + 1}`;
+  let nextTurn: SeatIndex;
+  if (seat === state.duelDefenderSeat && state.duelChallengerSeat !== null && !state.passedSeats[state.duelChallengerSeat]) {
+    nextTurn = state.duelChallengerSeat;
+  } else if (seat === state.duelChallengerSeat && defenderExistsAndActive && state.duelDefenderSeat !== null) {
+    nextTurn = state.duelDefenderSeat;
+  } else {
+    nextTurn = findNextActiveSeatExcluding(seat, seat, state.passedSeats) ?? seat;
+  }
+
+  const nextName = state.seats[nextTurn]?.name ?? `Seat ${nextTurn + 1}`;
   void rng;
   return {
     ...state,
     highestBid: amount,
     highestBidderSeat: seat,
-    bidTurnSeat: nextBidder,
+    bidTurnSeat: nextTurn,
     bidHistory,
-    statusMessage: `${playerName} bid ${amount}. ${nextName}'s turn to bid or pass.`,
+    statusMessage: isMatch
+      ? `${playerName} matched ${amount}! ${nextName}'s turn.`
+      : `${playerName} bid ${amount}. ${nextName}'s turn.`,
   };
 }
 
@@ -476,19 +543,80 @@ export function passBid(
       passedSeats: nextPassed,
       bidHistory,
       phase: 'trump_select',
-      statusMessage: `${winnerName} won the bid at ${state.highestBid}. Choosing hidden trump suit...`,
+      statusMessage: `${playerName} passed — ${winnerName} won the bid at ${state.highestBid}. Choosing hidden trump...`,
     };
   }
 
-  const nextBidder = findNextActiveBidder(seat, nextPassed);
-  const nextName = state.seats[nextBidder]?.name ?? `Seat ${nextBidder + 1}`;
+  // Nobody has bid yet: advance the opening duel pair to the next adjacent players in the circle
+  if (state.highestBid === null || state.highestBidderSeat === null) {
+    const nextOpener = findNextActiveSeatExcluding(seat, null, nextPassed) ?? remainingSeats[0];
+    const nextChallenger = findNextActiveSeatExcluding(nextOpener, nextOpener, nextPassed);
+    const openerName = state.seats[nextOpener]?.name ?? `Seat ${nextOpener + 1}`;
+    return {
+      ...state,
+      passedSeats: nextPassed,
+      bidHistory,
+      duelDefenderSeat: nextOpener,
+      duelChallengerSeat: nextChallenger,
+      bidTurnSeat: nextOpener,
+      statusMessage: `${playerName} passed. ${openerName}'s turn to open bidding.`,
+    };
+  }
+
+  // A duel had an active bid: surviving bidder becomes defender and next unpassed player in circle challenges
+  const survivingDefender: SeatIndex =
+    seat === state.duelDefenderSeat && state.duelChallengerSeat !== null && !nextPassed[state.duelChallengerSeat]
+      ? state.duelChallengerSeat
+      : state.highestBidderSeat;
+
+  // If surviving defender already holds 28, no challenger can beat 28
+  if (state.highestBid === 28 && state.highestBidderSeat === survivingDefender) {
+    const winnerName = state.seats[survivingDefender]?.name ?? `Seat ${survivingDefender + 1}`;
+    return {
+      ...state,
+      passedSeats: nextPassed,
+      bidHistory,
+      phase: 'trump_select',
+      statusMessage: `${winnerName} won the bid at 28. Choosing hidden trump...`,
+    };
+  }
+
+  const circleFrom = state.duelChallengerSeat ?? seat;
+  const nextChallenger =
+    findNextActiveSeatExcluding(circleFrom, survivingDefender, nextPassed) ??
+    findNextActiveSeatExcluding(survivingDefender, survivingDefender, nextPassed);
+
+  if (nextChallenger === null) {
+    const winnerName = state.seats[survivingDefender]?.name ?? `Seat ${survivingDefender + 1}`;
+    return {
+      ...state,
+      passedSeats: nextPassed,
+      bidHistory,
+      phase: 'trump_select',
+      statusMessage: `${playerName} passed — ${winnerName} won the bid at ${state.highestBid}. Choosing hidden trump...`,
+    };
+  }
+
+  const defenderName = state.seats[survivingDefender]?.name ?? `Seat ${survivingDefender + 1}`;
+  const challengerName = state.seats[nextChallenger]?.name ?? `Seat ${nextChallenger + 1}`;
   return {
     ...state,
     passedSeats: nextPassed,
-    bidTurnSeat: nextBidder,
     bidHistory,
-    statusMessage: `${playerName} passed. ${nextName}'s turn to bid or pass.`,
+    duelDefenderSeat: survivingDefender,
+    duelChallengerSeat: nextChallenger,
+    bidTurnSeat: nextChallenger,
+    statusMessage: `${playerName} passed. ${challengerName} now challenges ${defenderName} (Bid ${state.highestBid}).`,
   };
+}
+
+function dealRemainingStock(state: TwentyNineState): [Card[], Card[], Card[], Card[]] {
+  return [
+    sortHand([...state.hands[0], ...state.stock[0]]),
+    sortHand([...state.hands[1], ...state.stock[1]]),
+    sortHand([...state.hands[2], ...state.stock[2]]),
+    sortHand([...state.hands[3], ...state.stock[3]]),
+  ];
 }
 
 export function selectTrump(state: TwentyNineState, seat: SeatIndex, suit: Suit): TwentyNineState {
@@ -499,13 +627,7 @@ export function selectTrump(state: TwentyNineState, seat: SeatIndex, suit: Suit)
     throw new Error('Only the winning bidder can select the trump suit.');
   }
 
-  const fullHands: [Card[], Card[], Card[], Card[]] = [
-    sortHand([...state.hands[0], ...state.stock[0]]),
-    sortHand([...state.hands[1], ...state.stock[1]]),
-    sortHand([...state.hands[2], ...state.stock[2]]),
-    sortHand([...state.hands[3], ...state.stock[3]]),
-  ];
-
+  const fullHands = dealRemainingStock(state);
   const firstLead = ((state.dealerSeat + 1) % 4) as SeatIndex;
   const leadName = state.seats[firstLead]?.name ?? `Seat ${firstLead + 1}`;
   const bidderName = state.seats[seat]?.name ?? `Seat ${seat + 1}`;
@@ -513,13 +635,76 @@ export function selectTrump(state: TwentyNineState, seat: SeatIndex, suit: Suit)
   return {
     ...state,
     phase: 'playing',
+    trumpMode: 'suit',
     trumpSuit: suit,
+    seventhCard: null,
     trumpRevealed: false,
     hands: fullHands,
     stock: [[], [], [], []],
     leadSeat: firstLead,
     turnSeat: firstLead,
     statusMessage: `${bidderName} locked hidden trump (Bid ${state.highestBid}). ${leadName} leads Trick 1.`,
+  };
+}
+
+export function selectSeventhCardTrump(state: TwentyNineState, seat: SeatIndex): TwentyNineState {
+  if (state.phase !== 'trump_select') {
+    throw new Error('Not in trump selection phase.');
+  }
+  if (state.highestBidderSeat !== seat) {
+    throw new Error('Only the winning bidder can choose 7th card trump.');
+  }
+
+  const seventhCard = state.stock[seat][2] ?? state.stock[seat][0] ?? state.hands[seat][0];
+  if (!seventhCard) {
+    throw new Error('7th card not available.');
+  }
+
+  const fullHands = dealRemainingStock(state);
+  const firstLead = ((state.dealerSeat + 1) % 4) as SeatIndex;
+  const leadName = state.seats[firstLead]?.name ?? `Seat ${firstLead + 1}`;
+  const bidderName = state.seats[seat]?.name ?? `Seat ${seat + 1}`;
+
+  return {
+    ...state,
+    phase: 'playing',
+    trumpMode: 'seventh_card',
+    trumpSuit: seventhCard.suit,
+    seventhCard,
+    trumpRevealed: false,
+    hands: fullHands,
+    stock: [[], [], [], []],
+    leadSeat: firstLead,
+    turnSeat: firstLead,
+    statusMessage: `${bidderName} chose the 7th Card as blind trump (Bid ${state.highestBid}). ${leadName} leads Trick 1.`,
+  };
+}
+
+export function selectJokerNoTrump(state: TwentyNineState, seat: SeatIndex): TwentyNineState {
+  if (state.phase !== 'trump_select') {
+    throw new Error('Not in trump selection phase.');
+  }
+  if (state.highestBidderSeat !== seat) {
+    throw new Error('Only the winning bidder can place the Joker (No Trump).');
+  }
+
+  const fullHands = dealRemainingStock(state);
+  const firstLead = ((state.dealerSeat + 1) % 4) as SeatIndex;
+  const leadName = state.seats[firstLead]?.name ?? `Seat ${firstLead + 1}`;
+  const bidderName = state.seats[seat]?.name ?? `Seat ${seat + 1}`;
+
+  return {
+    ...state,
+    phase: 'playing',
+    trumpMode: 'joker_no_trump',
+    trumpSuit: null,
+    seventhCard: null,
+    trumpRevealed: false,
+    hands: fullHands,
+    stock: [[], [], [], []],
+    leadSeat: firstLead,
+    turnSeat: firstLead,
+    statusMessage: `${bidderName} set hidden Joker (No Trump · Bid ${state.highestBid}). ${leadName} leads Trick 1.`,
   };
 }
 
@@ -559,7 +744,9 @@ export function callSingleHand(state: TwentyNineState, seat: SeatIndex): TwentyN
     stock: [[], [], [], []],
     highestBid: 29,
     highestBidderSeat: seat,
+    trumpMode: 'single_hand',
     trumpSuit: null,
+    seventhCard: null,
     trumpRevealed: false,
     trumpRevealedBySeat: null,
     marriageDeclaredByTeam: null,
@@ -633,7 +820,8 @@ export function getLegalCards(state: TwentyNineState, seat: SeatIndex): Card[] {
 export function canRevealTrump(state: TwentyNineState, seat: SeatIndex): boolean {
   if (state.isSingleHand) return false;
   if (state.phase !== 'playing' || state.turnSeat !== seat) return false;
-  if (state.trumpRevealed || !state.trumpSuit) return false;
+  if (state.trumpRevealed) return false;
+  if (!state.trumpSuit && state.trumpMode !== 'joker_no_trump') return false;
   if (state.currentTrick.length === 0) return false;
   const ledSuit = state.currentTrick[0].card.suit;
   const hasLedSuit = state.hands[seat].some((c) => c.suit === ledSuit);
@@ -645,12 +833,21 @@ export function revealTrump(state: TwentyNineState, seat: SeatIndex): TwentyNine
     throw new Error('Cannot reveal trump right now.');
   }
   const playerName = state.seats[seat]?.name ?? `Seat ${seat + 1}`;
-  const suitLabel = state.trumpSuit ? `${SUIT_SYMBOLS[state.trumpSuit]} ${SUIT_NAMES[state.trumpSuit]}` : '';
+  let statusMessage: string;
+  if (state.trumpMode === 'joker_no_trump') {
+    statusMessage = `${playerName} flipped Joker — No Trump this round!`;
+  } else {
+    const suitLabel = state.trumpSuit ? `${SUIT_SYMBOLS[state.trumpSuit]} ${SUIT_NAMES[state.trumpSuit]}` : '';
+    statusMessage =
+      state.trumpMode === 'seventh_card'
+        ? `${playerName} flipped 7th Card Trump: ${suitLabel}!`
+        : `${playerName} revealed Trump: ${suitLabel}!`;
+  }
   return {
     ...state,
     trumpRevealed: true,
     trumpRevealedBySeat: seat,
-    statusMessage: `${playerName} revealed Trump: ${suitLabel}!`,
+    statusMessage,
   };
 }
 
@@ -776,6 +973,8 @@ export function playCard(state: TwentyNineState, seat: SeatIndex, cardId: string
       winnerSeat === state.singleHandCallerSeat
         ? `${winnerName} swept Trick ${state.tricksCompleted + 1}/8!`
         : `${winnerName} broke the Single Hand!`;
+  } else if (state.tricksCompleted === 6 && !state.trumpRevealed) {
+    statusMessage = '2nd-last cards played with trump still hidden — Round Drawn!';
   }
 
   return {
@@ -792,6 +991,88 @@ export function playCard(state: TwentyNineState, seat: SeatIndex, cardId: string
       hadLastTrickBonus: !state.isSingleHand && isLastTrick,
     },
     statusMessage,
+  };
+}
+
+export function canSurrender(state: TwentyNineState, seat: SeatIndex): boolean {
+  if (state.phase !== 'trump_select' && state.phase !== 'playing') {
+    return false;
+  }
+  if (state.isSingleHand && state.singleHandPartnerSeat === seat) {
+    return false;
+  }
+  const team = getTeamForSeat(seat);
+  const bidderTeam = state.highestBidderSeat !== null ? getTeamForSeat(state.highestBidderSeat) : null;
+  if (bidderTeam !== null && team === bidderTeam) {
+    return true;
+  }
+  const oppTeam = (1 - team) as TeamIndex;
+  if (state.roundPoints[team] < state.roundPoints[oppTeam]) {
+    return true;
+  }
+  if (state.netScore > 0 && team === 1) return true;
+  if (state.netScore < 0 && team === 0) return true;
+  return false;
+}
+
+export function surrenderRound(state: TwentyNineState, seat: SeatIndex): TwentyNineState {
+  if (!canSurrender(state, seat)) {
+    throw new Error('You cannot surrender right now.');
+  }
+  const surrenderingTeam = getTeamForSeat(seat);
+  const winningTeam = (1 - surrenderingTeam) as TeamIndex;
+  const stake = state.roundStake;
+  const nextNetScore = applyRoundNetScore(
+    state.netScore,
+    winningTeam,
+    stake,
+    state.targetMatchPoints
+  );
+  const matchFinished = Math.abs(nextNetScore) >= state.targetMatchPoints;
+
+  const playerName = state.seats[seat]?.name ?? `Seat ${seat + 1}`;
+  const surrenderTeamLabel = surrenderingTeam === 0 ? 'Red Team' : 'Black Team';
+  const winningTeamLabel = winningTeam === 0 ? 'Red Team (Crimson)' : 'Black Team (Obsidian)';
+  const bidderSeat = state.highestBidderSeat ?? seat;
+
+  const pipState = getSixCardPipState(nextNetScore);
+  const pipSummary =
+    pipState.leadingTeam === 0
+      ? `${pipState.redHeartsRevealed}♥ revealed`
+      : pipState.leadingTeam === 1
+        ? `${pipState.blackSpadesRevealed}♠ revealed`
+        : 'Cards tied at 0';
+
+  const summary: RoundSummary = {
+    roundNumber: Math.max(1, state.roundNumber),
+    bidderSeat,
+    bidderTeam: getTeamForSeat(bidderSeat),
+    baseBid: state.highestBid ?? 16,
+    effectiveBid: state.highestBid !== null ? getEffectiveBid(state) : 16,
+    roundStake: stake,
+    isSingleHand: state.isSingleHand,
+    isSurrender: true,
+    surrenderedByTeam: surrenderingTeam,
+    trumpMode: state.trumpMode ?? 'suit',
+    singleHandTricksWon: state.tricksCompleted,
+    marriageDeclaredByTeam: state.marriageDeclaredByTeam,
+    trumpSuit: state.trumpSuit,
+    pointsByTeam: state.roundPoints,
+    contractMade: false,
+    roundWinnerTeam: winningTeam,
+    netScoreAfter: nextNetScore,
+  };
+
+  return {
+    ...state,
+    phase: matchFinished ? 'match_over' : 'round_over',
+    currentTrick: [],
+    trumpRevealed: true,
+    netScore: nextNetScore,
+    lastRoundSummary: summary,
+    statusMessage: matchFinished
+      ? `${playerName} (${surrenderTeamLabel}) surrendered! ${winningTeamLabel} wins the Match (${pipSummary})!`
+      : `${playerName} (${surrenderTeamLabel}) surrendered! ${winningTeamLabel} takes ${stake} pt${stake > 1 ? 's' : ''} (${pipSummary}).`,
   };
 }
 
@@ -850,6 +1131,7 @@ export function advanceAfterTrickPause(state: TwentyNineState): TwentyNineState 
       effectiveBid: 29,
       roundStake: state.roundStake,
       isSingleHand: true,
+      trumpMode: 'single_hand',
       singleHandTricksWon: tricksWonByCaller,
       marriageDeclaredByTeam: null,
       trumpSuit: null,
@@ -881,9 +1163,48 @@ export function advanceAfterTrickPause(state: TwentyNineState): TwentyNineState 
     };
   }
 
+  // Last-2-card rule: if no one viewed the trump card before everyone played their 2nd-last card (Trick 7), the round is a draw (0 pts).
+  if (nextTricksCompleted === 7 && !state.isSingleHand && !state.trumpRevealed) {
+    const bidderSeat = state.highestBidderSeat ?? 0;
+    const bidderTeam = getTeamForSeat(bidderSeat);
+    const effectiveBid = getEffectiveBid(state);
+    const summary: RoundSummary = {
+      roundNumber: state.roundNumber,
+      bidderSeat,
+      bidderTeam,
+      baseBid: state.highestBid ?? 16,
+      effectiveBid,
+      roundStake: 0,
+      isSingleHand: false,
+      isDraw: true,
+      drawReason: 'No one viewed the trump card before the 2nd-last card was played.',
+      trumpMode: state.trumpMode ?? 'suit',
+      singleHandTricksWon: 0,
+      marriageDeclaredByTeam: state.marriageDeclaredByTeam,
+      trumpSuit: state.trumpSuit,
+      pointsByTeam: state.roundPoints,
+      contractMade: false,
+      roundWinnerTeam: bidderTeam,
+      netScoreAfter: state.netScore,
+    };
+    return {
+      ...state,
+      phase: 'round_over',
+      currentTrick: [],
+      tricksCompleted: 7,
+      trumpRevealed: true,
+      lastRoundSummary: summary,
+      statusMessage: 'Round Drawn (0 pts) — No one saw the trump card before the 2nd-last card.',
+    };
+  }
+
   if (nextTricksCompleted < 8) {
     const winnerSeat = state.lastTrick.winnerSeat;
     const winnerName = state.seats[winnerSeat]?.name ?? `Seat ${winnerSeat + 1}`;
+    const hiddenWarning =
+      nextTricksCompleted === 6 && !state.trumpRevealed
+        ? ' (Last 2 cards · reveal trump or round draws!)'
+        : '';
     return {
       ...state,
       phase: 'playing',
@@ -891,7 +1212,7 @@ export function advanceAfterTrickPause(state: TwentyNineState): TwentyNineState 
       tricksCompleted: nextTricksCompleted,
       leadSeat: winnerSeat,
       turnSeat: winnerSeat,
-      statusMessage: `${winnerName} leads Trick ${nextTricksCompleted + 1}.`,
+      statusMessage: `${winnerName} leads Trick ${nextTricksCompleted + 1}${hiddenWarning}.`,
     };
   }
 
@@ -919,9 +1240,10 @@ export function advanceAfterTrickPause(state: TwentyNineState): TwentyNineState 
     effectiveBid,
     roundStake: state.roundStake,
     isSingleHand: false,
+    trumpMode: state.trumpMode ?? 'suit',
     singleHandTricksWon: 0,
     marriageDeclaredByTeam: state.marriageDeclaredByTeam,
-    trumpSuit: state.trumpSuit ?? 'S',
+    trumpSuit: state.trumpSuit,
     pointsByTeam: state.roundPoints,
     contractMade,
     roundWinnerTeam,
@@ -966,7 +1288,7 @@ export function resetMatch(state: TwentyNineState): TwentyNineState {
 
 export function chooseBotBid(state: TwentyNineState, seat: SeatIndex): { action: 'bid'; amount: number } | { action: 'pass' } {
   const hand = state.hands[seat];
-  const minBid = getMinimumNextBid(state);
+  const minBid = getMinimumNextBid(state, seat);
   const totalPts = hand.reduce((acc, c) => acc + getCardPoints(c), 0);
   const suitCounts: Record<Suit, number> = { S: 0, H: 0, D: 0, C: 0 };
   for (const c of hand) suitCounts[c.suit]++;
@@ -1025,10 +1347,16 @@ export function chooseBotAction(
   const trickPointsSoFar = state.currentTrick.reduce((s, p) => s + getCardPoints(p.card), 0);
 
   let revealFirst = false;
-  if (canRevealTrump(state, seat) && effectiveTrump) {
-    const hasTrump = hand.some((c) => c.suit === effectiveTrump);
-    if (hasTrump && !partnerWinning && (trickPointsSoFar >= 2 || state.currentTrick.length === lastCardIdx)) {
-      revealFirst = true;
+  if (canRevealTrump(state, seat)) {
+    if (state.trumpMode === 'joker_no_trump') {
+      if (!partnerWinning && (trickPointsSoFar >= 2 || state.currentTrick.length === lastCardIdx)) {
+        revealFirst = true;
+      }
+    } else if (effectiveTrump) {
+      const hasTrump = hand.some((c) => c.suit === effectiveTrump);
+      if (hasTrump && !partnerWinning && (trickPointsSoFar >= 2 || state.currentTrick.length === lastCardIdx)) {
+        revealFirst = true;
+      }
     }
   }
 
@@ -1070,7 +1398,10 @@ export function getClientGameView(state: TwentyNineState, playerId: string): Cli
 
   const canSeeTrump =
     state.trumpRevealed ||
-    (mySeat !== null && state.highestBidderSeat === mySeat && state.trumpSuit !== null);
+    (state.trumpMode !== 'seventh_card' &&
+      mySeat !== null &&
+      state.highestBidderSeat === mySeat &&
+      (state.trumpSuit !== null || state.trumpMode === 'joker_no_trump'));
 
   const legalCardIds =
     mySeat !== null && state.phase === 'playing' && state.turnSeat === mySeat
@@ -1094,11 +1425,15 @@ export function getClientGameView(state: TwentyNineState, playerId: string): Cli
     roundNumber: state.roundNumber,
     dealerSeat: state.dealerSeat,
     bidTurnSeat: state.bidTurnSeat,
+    duelDefenderSeat: state.duelDefenderSeat,
+    duelChallengerSeat: state.duelChallengerSeat,
     highestBid: state.highestBid,
     highestBidderSeat: state.highestBidderSeat,
     passedSeats: state.passedSeats,
     bidHistory: state.bidHistory,
+    trumpMode: state.trumpMode,
     trumpSuit: canSeeTrump ? state.trumpSuit : null,
+    seventhCard: state.trumpRevealed ? state.seventhCard : null,
     trumpRevealed: state.trumpRevealed,
     trumpRevealedBySeat: state.trumpRevealedBySeat,
     marriageDeclaredByTeam: state.marriageDeclaredByTeam,
@@ -1122,5 +1457,8 @@ export function getClientGameView(state: TwentyNineState, playerId: string): Cli
     canDeclareMarriage: mySeat !== null ? canDeclareMarriage(state, mySeat) : false,
     canDoubleStake: mySeat !== null ? canDoubleStake(state, mySeat) : false,
     canCallSingleHand: mySeat !== null ? canCallSingleHand(state, mySeat) : false,
+    canMatchCurrentBid: mySeat !== null ? canMatchBid(state, mySeat) : false,
+    canSurrender: mySeat !== null ? canSurrender(state, mySeat) : false,
+    minBidAmount: mySeat !== null ? getMinimumNextBid(state, mySeat) : getMinimumNextBid(state),
   };
 }

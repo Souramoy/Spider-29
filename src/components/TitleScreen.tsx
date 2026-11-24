@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { BookOpen, Users, Zap, ArrowRight } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface TitleScreenProps {
   connected: boolean;
@@ -239,16 +240,19 @@ export function TitleScreen({
       </main>
 
       {/* Quiet Bottom Safe Margin Control Hint */}
-      <footer className="relative z-10 px-6 sm:px-12 lg:px-20 pb-6 flex flex-wrap items-center justify-between gap-4 text-xs text-zinc-500">
+      <footer className="relative z-10 px-5 sm:px-12 lg:px-20 pb-5 flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-500">
         <span>32-Card Deck · Hidden Trump · Bid 16–28 · WebRTC Room Voice</span>
-        <button
-          type="button"
-          onClick={onOpenRules}
-          className="inline-flex items-center gap-1.5 text-zinc-300 hover:text-white transition-colors whitespace-nowrap"
-        >
-          <BookOpen className="w-3.5 h-3.5 text-[#EF4444]" />
-          <span>How to Play 29</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <PWAInstallButton />
+          <button
+            type="button"
+            onClick={onOpenRules}
+            className="inline-flex items-center gap-1.5 text-zinc-300 hover:text-white transition-colors whitespace-nowrap"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-[#EF4444]" />
+            <span>How to Play 29</span>
+          </button>
+        </div>
       </footer>
     </div>
   );

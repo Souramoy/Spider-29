@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#1D1218" />
+      <stop offset="100%" stop-color="#0B0C10" />
+    </radialGradient>
+    <linearGradient id="crimson" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#EF4444" />
+      <stop offset="100%" stop-color="#B91C2A" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bg)" />
+  <rect x="20" y="20" width="472" height="472" rx="92" fill="none" stroke="#D92B3A" stroke-width="8" stroke-opacity="0.7" />
+  <g stroke="#D92B3A" stroke-opacity="0.22" stroke-width="3" fill="none">
+    <path d="M256 36 L256 476 M36 256 L476 256 M96 96 L416 416 M416 96 L96 416" />
+    <circle cx="256" cy="256" r="110" />
+    <circle cx="256" cy="256" r="175" />
+  </g>
+  <path d="M256 122 L278 156 L256 190 L234 156 Z M256 194 L304 252 L256 356 L208 252 Z" fill="url(#crimson)" />
+  <path d="M226 184 L138 106 L120 174 M286 184 L374 106 L392 174 M214 228 L110 228 L96 296 M298 228 L402 228 L416 296 M222 268 L136 358 L152 414 M290 268 L376 358 L360 414" fill="none" stroke="#EF4444" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="256" y="446" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" font-weight="900" font-size="88" letter-spacing="4" fill="#F4F4F5">29</text>
+</svg>

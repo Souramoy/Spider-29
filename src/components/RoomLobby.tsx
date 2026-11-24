@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { Bot, Check, Copy, LogOut, Play, UserPlus, BookOpen, Mic, MicOff } from 'lucide-react';
-import type { ClientGameView, SeatIndex } from '../game/twentyNine';
+import type { ChatMessage, ClientGameView, SeatIndex } from '../game/twentyNine';
+import type { BidNotificationEvent } from '../game/bidNotifications';
+import type { PushPermissionState } from '../hooks/useBidNotifications';
 import type { VoicePeerInfo } from '../hooks/useVoiceChat';
+import { BidAlertControl } from './BidNotifications';
 import { VoiceBar } from './VoiceBar';
+import { RoomChat } from './RoomChat';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface RoomLobbyProps {
   gameState: ClientGameView;
   voicePeers: VoicePeerInfo[];
+  chatMessages: ChatMessage[];
   inVoice: boolean;
   isMuted: boolean;
   isDeafened: boolean;
@@ -19,16 +25,22 @@ interface RoomLobbyProps {
   onStartMatch: () => void;
   onLeaveRoom: () => void;
   onOpenRules: () => void;
+  onSendChat: (text: string) => void;
   onJoinVoice: () => void;
   onLeaveVoice: () => void;
   onToggleMute: () => void;
   onToggleDeafen: () => void;
   onClearVoiceError: () => void;
+  pushPermission: PushPermissionState;
+  isPushActive: boolean;
+  bidFeed: BidNotificationEvent[];
+  onToggleOsPush: () => void;
 }
 
 export function RoomLobby({
   gameState,
   voicePeers,
+  chatMessages,
   inVoice,
   isMuted,
   isDeafened,
@@ -41,11 +53,16 @@ export function RoomLobby({
   onStartMatch,
   onLeaveRoom,
   onOpenRules,
+  onSendChat,
   onJoinVoice,
   onLeaveVoice,
   onToggleMute,
   onToggleDeafen,
   onClearVoiceError,
+  pushPermission,
+  isPushActive,
+  bidFeed,
+  onToggleOsPush,
 }: RoomLobbyProps) {
   const [copied, setCopied] = useState(false);
 
@@ -96,7 +113,7 @@ export function RoomLobby({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <VoiceBar
             inVoice={inVoice}
             isMuted={isMuted}
@@ -110,6 +127,18 @@ export function RoomLobby({
             onToggleDeafen={onToggleDeafen}
             onClearError={onClearVoiceError}
           />
+          <RoomChat
+            messages={chatMessages}
+            myPlayerId={gameState.myPlayerId}
+            onSendMessage={onSendChat}
+          />
+          <BidAlertControl
+            permission={pushPermission}
+            isPushActive={isPushActive}
+            bidFeed={bidFeed}
+            onToggleOsPush={onToggleOsPush}
+          />
+          <PWAInstallButton compact />
           <button
             type="button"
             onClick={onOpenRules}
@@ -291,10 +320,13 @@ function LobbySeatRow({
     );
   }
 
+  const isRedTeam = seatIdx % 2 === 0;
   return (
     <div
-      className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl bg-[#191C26] border transition-colors ${
-        isSpeaking ? 'border-[#EF4444] ring-1 ring-[#EF4444]/60' : 'border-white/10'
+      className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
+        isRedTeam ? 'bg-[#281116]/90 border-[#D92B3A]/45' : 'bg-[#14161F]/95 border-white/12'
+      } ${
+        isSpeaking ? 'border-[#EF4444] ring-1 ring-[#EF4444]/60' : ''
       }`}
     >
       <div className="flex items-center gap-3 min-w-0">

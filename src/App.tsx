@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { GameTable } from './components/GameTable';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { RoomLobby } from './components/RoomLobby';
 import { RulesModal } from './components/RulesModal';
 import { TitleScreen } from './components/TitleScreen';
+import { useBidNotifications } from './hooks/useBidNotifications';
 import { useRoomSocket } from './hooks/useRoomSocket';
 import { useVoiceChat } from './hooks/useVoiceChat';
 import { playTone } from './utils/soundFx';
@@ -13,9 +15,11 @@ export default function App() {
     connected,
     gameState,
     voicePeers,
+    chatMessages,
     errorMessage,
     incomingSignal,
     sendMessage,
+    sendChatMessage,
     createRoom,
     joinRoom,
     leaveRoom,
@@ -29,6 +33,8 @@ export default function App() {
     sendMessage,
     incomingSignal,
   });
+
+  const bidNoti = useBidNotifications(gameState);
 
   const [rulesOpen, setRulesOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -135,6 +141,7 @@ export default function App() {
         <RoomLobby
           gameState={gameState}
           voicePeers={voicePeers}
+          chatMessages={chatMessages}
           inVoice={voice.inVoice}
           isMuted={voice.isMuted}
           isDeafened={voice.isDeafened}
@@ -147,16 +154,22 @@ export default function App() {
           onStartMatch={() => sendMessage({ type: 'room:start' })}
           onLeaveRoom={handleLeaveRoom}
           onOpenRules={() => setRulesOpen(true)}
+          onSendChat={sendChatMessage}
           onJoinVoice={() => void voice.joinVoice()}
           onLeaveVoice={voice.leaveVoice}
           onToggleMute={voice.toggleMute}
           onToggleDeafen={voice.toggleDeafen}
           onClearVoiceError={voice.clearVoiceError}
+          pushPermission={bidNoti.permission}
+          isPushActive={bidNoti.isPushActive}
+          bidFeed={bidNoti.bidFeed}
+          onToggleOsPush={bidNoti.toggleOsPush}
         />
       ) : (
         <GameTable
           gameState={gameState}
           voicePeers={voicePeers}
+          chatMessages={chatMessages}
           inVoice={voice.inVoice}
           isMuted={voice.isMuted}
           isDeafened={voice.isDeafened}
@@ -164,6 +177,12 @@ export default function App() {
           speakingMap={voice.speakingMap}
           soundEnabled={soundEnabled}
           errorMessage={errorMessage}
+          pushPermission={bidNoti.permission}
+          isPushActive={bidNoti.isPushActive}
+          bidFeed={bidNoti.bidFeed}
+          activeBidBanner={bidNoti.activeBanner}
+          onToggleOsPush={bidNoti.toggleOsPush}
+          onDismissBidBanner={bidNoti.dismissBanner}
           onBid={(amount) => {
             playTone('bid', soundEnabled);
             sendMessage({ type: 'game:bid', amount });
@@ -172,6 +191,14 @@ export default function App() {
           onSelectTrump={(suit) => {
             playTone('trump', soundEnabled);
             sendMessage({ type: 'game:select_trump', suit });
+          }}
+          onSelectSeventhCard={() => {
+            playTone('trump', soundEnabled);
+            sendMessage({ type: 'game:select_seventh_card' });
+          }}
+          onSelectJokerNoTrump={() => {
+            playTone('trump', soundEnabled);
+            sendMessage({ type: 'game:select_joker_no_trump' });
           }}
           onRevealTrump={() => sendMessage({ type: 'game:reveal_trump' })}
           onDeclareMarriage={() => sendMessage({ type: 'game:declare_marriage' })}
@@ -183,8 +210,10 @@ export default function App() {
           onPlayCard={(cardId) => sendMessage({ type: 'game:play_card', cardId })}
           onNextRound={() => sendMessage({ type: 'game:next_round' })}
           onRematch={() => sendMessage({ type: 'game:rematch' })}
+          onSurrender={() => sendMessage({ type: 'game:surrender' })}
           onLeaveRoom={handleLeaveRoom}
           onOpenRules={() => setRulesOpen(true)}
+          onSendChat={sendChatMessage}
           onToggleSound={() => setSoundEnabled((prev) => !prev)}
           onJoinVoice={() => void voice.joinVoice()}
           onLeaveVoice={voice.leaveVoice}
@@ -195,6 +224,7 @@ export default function App() {
       )}
 
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
+      <OfflineIndicator />
     </>
   );
 }

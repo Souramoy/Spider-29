@@ -18,9 +18,13 @@ import {
   playCard,
   resetMatch,
   revealTrump,
+  selectJokerNoTrump,
+  selectSeventhCardTrump,
   selectTrump,
   startRound,
+  surrenderRound,
   SUITS,
+  type ChatMessage,
   type SeatIndex,
   type Suit,
   type TwentyNineState,
@@ -43,6 +47,7 @@ interface ServerRoom {
   state: TwentyNineState;
   clients: Map<string, WebSocket>;
   voicePeers: Map<string, VoicePeerState>;
+  chatMessages: ChatMessage[];
   pendingTimer: NodeJS.Timeout | null;
   lastActivityAt: number;
 }
@@ -126,7 +131,12 @@ function scheduleAutomation(room: ServerRoom): void {
     room.state.tricksCompleted === 0 &&
     room.state.currentTrick.length === 0 &&
     !room.state.isSingleHand;
-  const botDelayMs = hasHuman && isTrick1Opener ? 1800 : 650;
+  const botDelayMs =
+    hasHuman && isTrick1Opener
+      ? 1800
+      : hasHuman && room.state.phase === 'bidding'
+        ? 1150
+        : 650;
 
   room.pendingTimer = setTimeout(() => {
     room.pendingTimer = null;
@@ -232,6 +242,7 @@ async function startServer() {
             state,
             clients: new Map([[playerId, ws]]),
             voicePeers: new Map(),
+            chatMessages: [],
             pendingTimer: null,
             lastActivityAt: Date.now(),
           };
@@ -246,6 +257,7 @@ async function startServer() {
 
           broadcastRoomState(room);
           broadcastVoicePeers(room);
+          sendJson(ws, { type: 'chat:history', messages: room.chatMessages });
           scheduleAutomation(room);
           return;
         }
@@ -304,6 +316,7 @@ async function startServer() {
 
           broadcastRoomState(room);
           broadcastVoicePeers(room);
+          sendJson(ws, { type: 'chat:history', messages: room.chatMessages });
           return;
         }
 
@@ -393,6 +406,29 @@ async function startServer() {
           return;
         }
 
+        // Room Chat
+        if (type === 'chat:send') {
+          const rawText = typeof msg.text === 'string' ? msg.text : '';
+          const cleaned = rawText.replace(/\s+/g, ' ').trim().slice(0, 220);
+          if (!cleaned) return;
+          const message: ChatMessage = {
+            id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            playerId: currentPlayerId,
+            senderName: mySeatObj?.name ?? 'Player',
+            seat: mySeat,
+            text: cleaned,
+            createdAt: Date.now(),
+          };
+          room.chatMessages.push(message);
+          if (room.chatMessages.length > 60) {
+            room.chatMessages.shift();
+          }
+          for (const clientWs of room.clients.values()) {
+            sendJson(clientWs, { type: 'chat:message', message });
+          }
+          return;
+        }
+
         // Lobby Actions
         if (type === 'room:take_seat') {
           if (room.state.phase !== 'lobby' || mySeat === null) return;
@@ -467,6 +503,20 @@ async function startServer() {
           return;
         }
 
+        if (type === 'game:select_seventh_card') {
+          room.state = selectSeventhCardTrump(room.state, mySeat);
+          broadcastRoomState(room);
+          scheduleAutomation(room);
+          return;
+        }
+
+        if (type === 'game:select_joker_no_trump') {
+          room.state = selectJokerNoTrump(room.state, mySeat);
+          broadcastRoomState(room);
+          scheduleAutomation(room);
+          return;
+        }
+
         if (type === 'game:reveal_trump') {
           room.state = revealTrump(room.state, mySeat);
           broadcastRoomState(room);
@@ -513,6 +563,13 @@ async function startServer() {
           room.state = resetMatch(room.state);
           broadcastRoomState(room);
           scheduleAutomation(room);
+          return;
+        }
+
+        if (type === 'game:surrender') {
+          clearRoomTimer(room);
+          room.state = surrenderRound(room.state, mySeat);
+          broadcastRoomState(room);
           return;
         }
       } catch (err) {

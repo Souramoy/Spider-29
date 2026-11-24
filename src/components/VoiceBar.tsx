@@ -38,10 +38,12 @@ export function VoiceBar({
         <button
           type="button"
           onClick={onJoinVoice}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#1E202B] hover:bg-[#272A38] border border-[#D92B3A]/45 text-zinc-100 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+          className={`inline-flex items-center gap-1.5 rounded-lg bg-[#1E202B] hover:bg-[#272A38] border border-[#D92B3A]/45 text-zinc-100 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+            compact ? 'px-2.5 py-1.5' : 'px-3.5 py-2'
+          }`}
         >
           <Mic className="w-3.5 h-3.5 text-[#EF4444]" />
-          <span>Join Voice Chat</span>
+          <span>{compact ? 'Voice' : 'Join Voice Chat'}</span>
           {voicePeers.length > 0 && (
             <span className="font-mono-nums text-zinc-400">· {voicePeers.length} live</span>
           )}

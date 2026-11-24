@@ -12,11 +12,11 @@ interface SpiderCardProps {
 }
 
 const SIZE_CLASSES: Record<NonNullable<SpiderCardProps['size']>, string> = {
-  xs: 'w-9 h-13 rounded-md',
-  sm: 'w-14 h-20 rounded-lg',
+  xs: 'w-8 h-12 sm:w-9 sm:h-13 rounded-md',
+  sm: 'w-10 h-15 sm:w-14 sm:h-20 short:w-9 short:h-12 rounded-lg',
   md: 'w-20 h-28 rounded-xl',
   lg: 'w-22 h-32 sm:w-24 sm:h-34 rounded-xl',
-  hand: 'w-16 h-24 sm:w-22 sm:h-32 md:w-24 md:h-34 rounded-xl',
+  hand: 'w-[42px] h-[62px] sm:w-20 sm:h-28 md:w-24 md:h-34 short:w-[44px] short:h-[64px] rounded-lg sm:rounded-xl short:rounded-lg',
 };
 
 export function SpiderCard({
@@ -80,19 +80,23 @@ export function SpiderCard({
     size === 'xs'
       ? 'text-[10px]'
       : size === 'sm'
-        ? 'text-xs'
+        ? 'text-[11px] sm:text-xs short:text-[10px]'
         : size === 'md'
           ? 'text-base'
-          : 'text-lg sm:text-xl';
+          : size === 'hand'
+            ? 'text-xs sm:text-lg md:text-xl short:text-xs'
+            : 'text-lg sm:text-xl';
 
   const centerSuitSize =
     size === 'xs'
       ? 'text-sm'
       : size === 'sm'
-        ? 'text-xl'
+        ? 'text-base sm:text-xl short:text-base'
         : size === 'md'
           ? 'text-3xl'
-          : 'text-4xl';
+          : size === 'hand'
+            ? 'text-lg sm:text-3xl md:text-4xl short:text-lg'
+            : 'text-4xl';
 
   const borderStyle = selected
     ? 'border-[#EF4444] ring-2 ring-[#EF4444]/60 -translate-y-2'
@@ -142,7 +146,15 @@ export function SpiderCard({
         }`}
       >
         <span className={`font-display font-bold tracking-tight ${rankSize}`}>{card.rank}</span>
-        <span className={size === 'xs' ? 'text-[9px]' : size === 'sm' ? 'text-[10px]' : 'text-xs'}>
+        <span
+          className={
+            size === 'xs'
+              ? 'text-[9px]'
+              : size === 'sm' || size === 'hand'
+                ? 'text-[9px] sm:text-xs short:text-[9px]'
+                : 'text-xs'
+          }
+        >
           {suitSymbol}
         </span>
       </div>
@@ -158,11 +170,11 @@ export function SpiderCard({
         >
           {suitSymbol}
         </span>
-        {points > 0 && (size === 'md' || size === 'lg') && (
+        {points > 0 && (size === 'md' || size === 'lg' || size === 'hand') && (
           <span
-            className={`mt-1 text-[10px] font-mono-nums tracking-tight ${
-              isRedSuit ? 'text-[#FCA5A5]/80' : 'text-zinc-400'
-            }`}
+            className={`mt-0.5 text-[9px] sm:text-[10px] font-mono-nums tracking-tight ${
+              size === 'hand' ? 'hidden sm:inline short:hidden' : ''
+            } ${isRedSuit ? 'text-[#FCA5A5]/80' : 'text-zinc-400'}`}
           >
             +{points}
           </span>
@@ -176,14 +188,27 @@ export function SpiderCard({
         }`}
       >
         <span className={`font-display font-bold tracking-tight ${rankSize}`}>{card.rank}</span>
-        <span className={size === 'xs' ? 'text-[9px]' : size === 'sm' ? 'text-[10px]' : 'text-xs'}>
+        <span
+          className={
+            size === 'xs'
+              ? 'text-[9px]'
+              : size === 'sm' || size === 'hand'
+                ? 'text-[9px] sm:text-xs short:text-[9px]'
+                : 'text-xs'
+          }
+        >
           {suitSymbol}
         </span>
       </div>
     </>
   );
 
-  const paddingClass = size === 'sm' || size === 'xs' ? 'p-1.5' : 'p-2 sm:p-2.5';
+  const paddingClass =
+    size === 'sm' || size === 'xs'
+      ? 'p-1 sm:p-1.5 short:p-1'
+      : size === 'hand'
+        ? 'p-1 sm:p-2 md:p-2.5 short:p-1'
+        : 'p-2 sm:p-2.5';
   const sharedClasses = `${sizeClass} relative flex flex-col justify-between ${paddingClass} bg-gradient-to-b from-[#1A1B23] to-[#111217] border shadow-lg select-none shrink-0 overflow-hidden ${borderStyle} ${
     dimmed ? 'opacity-45 saturate-75' : 'opacity-100'
   } ${interactiveClasses}`;

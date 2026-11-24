@@ -57,16 +57,16 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
           </div>
 
           <div>
-            <h3 className="text-zinc-100 font-semibold mb-1">1. Deal, Bidding (16–28) &amp; Double</h3>
+            <h3 className="text-zinc-100 font-semibold mb-1">1. Deal, Adjacent Duel Bidding &amp; Match</h3>
             <p className="text-zinc-400">
-              Each player receives 4 cards first and bids 16–28 (or Pass). The highest bidder secretly picks the <span className="text-zinc-200 font-medium">Trump Suit</span>, then receives 4 more cards. Defenders may <span className="text-[#F87171] font-medium">Double (×2)</span> during Trick 1 (and bidders may Redouble to 4).
+              Each player receives 4 cards first. Bidding runs between two adjacent players at a time (16–28 or Pass). The player who started/holds priority can <span className="text-[#F87171] font-medium">Match</span> the challenger&apos;s bid without raising! When one duelist passes, bidding moves clockwise to the next player in the circle.
             </p>
           </div>
 
           <div>
-            <h3 className="text-zinc-100 font-semibold mb-1">2. Follow Suit, Hidden Trump &amp; Royal Pair</h3>
+            <h3 className="text-zinc-100 font-semibold mb-1">2. Hidden Trump, 7th Card, Joker &amp; Royal Pair</h3>
             <p className="text-zinc-400">
-              Follow the led suit if able. When void, click <span className="text-[#F87171] font-medium">Reveal Hidden Trump</span> to flip trump face-up. Once open, holding both K &amp; Q of Trump lets you <span className="text-zinc-200 font-medium">Declare Pair</span> (±4 to target bid).
+              The winning bidder sets a suit, places the blind <span className="text-zinc-200 font-medium">7th Card</span> (secret even to the bidder until revealed), or sets the <span className="text-[#F87171] font-medium">Joker (No Trump)</span>. Defenders may <span className="text-zinc-200 font-medium">Double (×2)</span> during Trick 1. When void, click <span className="text-[#F87171] font-medium">Reveal Hidden Trump</span>; once open, holding K &amp; Q of Trump lets you <span className="text-zinc-200 font-medium">Declare Pair</span> (±4 bid).
             </p>
           </div>
 
@@ -78,7 +78,14 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
           </div>
 
           <div>
-            <h3 className="text-zinc-100 font-semibold mb-1">4. 6 of Hearts (6♥) &amp; 6 of Spades (6♠) Scoring</h3>
+            <h3 className="text-zinc-100 font-semibold mb-1">4. Last-2-Card Draw &amp; Surrender</h3>
+            <p className="text-zinc-400">
+              If everyone reaches their last 2 cards (Trick 7) and no one views the hidden trump card before the 2nd-last card finishes, the round ends in a <span className="text-zinc-200 font-medium">Draw</span> and neither team scores points. If a team overbids or wants to concede the current hand, they may press <span className="text-[#F87171] font-medium">Surrender</span> to award that round&apos;s points (<span className="font-mono-nums text-zinc-200">1 pt</span>, or <span className="font-mono-nums text-zinc-200">2 pts</span> if Doubled / <span className="font-mono-nums text-zinc-200">4 pts</span> if Redoubled) to the opponents.
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-zinc-100 font-semibold mb-1">5. 6 of Hearts (6♥) &amp; 6 of Spades (6♠) Scoring</h3>
             <p className="text-zinc-400">
               If the bidding team makes their bid, they score the round&apos;s points; if they fail, the opposing team scores the same points. Points work as a tug-of-war on the <span className="text-[#F87171] font-medium">6♥</span> and <span className="text-zinc-200 font-medium">6♠</span> cards: for example, if Red leads with 2♥ revealed and Black scores 3 points, 2♥ close, the cards flip order, and 1♠ reveals. First team to reveal all <span className="font-mono-nums text-zinc-200">6</span> pips wins!
             </p>

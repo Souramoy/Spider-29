@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ClientGameView } from '../game/twentyNine';
+import type { ChatMessage, ClientGameView } from '../game/twentyNine';
 import type { VoicePeerInfo } from './useVoiceChat';
 
 function getOrCreateTabPlayerId(): string {
@@ -16,6 +16,7 @@ export function useRoomSocket() {
   const [connected, setConnected] = useState(false);
   const [gameState, setGameState] = useState<ClientGameView | null>(null);
   const [voicePeers, setVoicePeers] = useState<VoicePeerInfo[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [incomingSignal, setIncomingSignal] = useState<{
     fromPlayerId: string;
@@ -83,6 +84,11 @@ export function useRoomSocket() {
             };
           } else if (msg.type === 'voice:peers' && Array.isArray(msg.peers)) {
             setVoicePeers(msg.peers as VoicePeerInfo[]);
+          } else if (msg.type === 'chat:history' && Array.isArray(msg.messages)) {
+            setChatMessages(msg.messages as ChatMessage[]);
+          } else if (msg.type === 'chat:message' && msg.message) {
+            const incoming = msg.message as ChatMessage;
+            setChatMessages((prev) => [...prev.slice(-59), incoming]);
           } else if (msg.type === 'voice:signal' && typeof msg.fromPlayerId === 'string' && msg.signal) {
             signalSeqRef.current += 1;
             setIncomingSignal({
@@ -148,17 +154,29 @@ export function useRoomSocket() {
     sendMessage({ type: 'room:leave' });
     setGameState(null);
     setVoicePeers([]);
+    setChatMessages([]);
     setErrorMessage(null);
   }, [sendMessage]);
+
+  const sendChatMessage = useCallback(
+    (text: string) => {
+      const cleaned = text.trim();
+      if (!cleaned) return;
+      sendMessage({ type: 'chat:send', text: cleaned });
+    },
+    [sendMessage]
+  );
 
   return {
     myPlayerId,
     connected,
     gameState,
     voicePeers,
+    chatMessages,
     errorMessage,
     incomingSignal,
     sendMessage,
+    sendChatMessage,
     createRoom,
     joinRoom,
     leaveRoom,

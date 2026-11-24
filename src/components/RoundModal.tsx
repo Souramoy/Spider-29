@@ -1,4 +1,4 @@
-import { Trophy, RotateCw } from 'lucide-react';
+import { Flag, Handshake, RotateCw, Trophy } from 'lucide-react';
 import { getSixCardPipState, SUIT_NAMES, SUIT_SYMBOLS, type ClientGameView } from '../game/twentyNine';
 import { ScoreCardsWidget } from './ScoreCardsWidget';
 
@@ -6,6 +6,7 @@ interface RoundModalProps {
   gameState: ClientGameView;
   onNextRound: () => void;
   onRematch: () => void;
+  onSurrender: () => void;
   onLeaveRoom: () => void;
 }
 
@@ -13,6 +14,7 @@ export function RoundModal({
   gameState,
   onNextRound,
   onRematch,
+  onSurrender,
   onLeaveRoom,
 }: RoundModalProps) {
   if (gameState.phase !== 'round_over' && gameState.phase !== 'match_over') {
@@ -23,11 +25,15 @@ export function RoundModal({
   if (!summary) return null;
 
   const isMatchOver = gameState.phase === 'match_over';
+  const isDraw = Boolean(summary.isDraw);
+  const isSurrender = Boolean(summary.isSurrender);
   const winnerLabel = summary.roundWinnerTeam === 0 ? 'Red Team (Crimson)' : 'Black Team (Obsidian)';
   const bidderTeamLabel = summary.bidderTeam === 0 ? 'Red Team' : 'Black Team';
   const bidderName = gameState.seats[summary.bidderSeat]?.name ?? `Seat ${summary.bidderSeat + 1}`;
   const pipState = getSixCardPipState(gameState.netScore);
   const matchWinnerLabel = pipState.leadingTeam === 0 ? 'Red Team (6♥)' : 'Black Team (6♠)';
+  const surrenderLoserLabel =
+    summary.surrenderedByTeam === 0 ? 'Red Team' : 'Black Team';
 
   return (
     <div
@@ -40,16 +46,26 @@ export function RoundModal({
         <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
           <div>
             <div className="text-xs text-zinc-400">
-              {isMatchOver ? 'Match Complete' : `Round ${summary.roundNumber} Complete`}
+              {isMatchOver
+                ? isSurrender
+                  ? 'Match Complete (Surrender)'
+                  : 'Match Complete'
+                : isDraw
+                  ? `Round ${summary.roundNumber} Drawn`
+                  : isSurrender
+                    ? `Round ${summary.roundNumber} Surrendered`
+                    : `Round ${summary.roundNumber} Complete`}
             </div>
             <h2 id="round-outcome-title" className="font-display text-2xl sm:text-3xl font-bold text-white mt-0.5">
               {isMatchOver
                 ? `${matchWinnerLabel} Wins!`
-                : `${winnerLabel} +${summary.roundStake} pt${summary.roundStake > 1 ? 's' : ''}`}
+                : isDraw
+                  ? 'Round Draw · 0 Points'
+                  : `${winnerLabel} +${summary.roundStake} pt${summary.roundStake > 1 ? 's' : ''}`}
             </h2>
           </div>
           <div className="w-10 h-10 rounded-xl bg-[#D92B3A]/15 border border-[#D92B3A]/35 flex items-center justify-center text-[#EF4444]">
-            <Trophy className="w-5 h-5" />
+            {isDraw ? <Handshake className="w-5 h-5" /> : <Trophy className="w-5 h-5" />}
           </div>
         </div>
 
@@ -82,27 +98,45 @@ export function RoundModal({
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Trump Suit</span>
               <span className="text-zinc-100 font-medium">
-                {summary.isSingleHand || !summary.trumpSuit
+                {summary.isSingleHand
                   ? 'No Trump (Single Hand)'
-                  : `${SUIT_SYMBOLS[summary.trumpSuit]} ${SUIT_NAMES[summary.trumpSuit]}`}
+                  : summary.trumpMode === 'joker_no_trump'
+                    ? '🃏 Joker (No Trump)'
+                    : summary.trumpSuit
+                      ? `${summary.trumpMode === 'seventh_card' ? '7th Card · ' : ''}${SUIT_SYMBOLS[summary.trumpSuit]} ${SUIT_NAMES[summary.trumpSuit]}`
+                      : 'No Trump'}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Round Stake</span>
               <span className="font-mono-nums text-zinc-100 font-medium">
-                {summary.roundStake} pt{summary.roundStake > 1 ? 's' : ''}
+                {isDraw ? '0 pts (Draw)' : `${summary.roundStake} pt${summary.roundStake > 1 ? 's' : ''}`}
               </span>
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-zinc-400">Outcome</span>
-              <span className={summary.contractMade ? 'text-emerald-400 font-semibold' : 'text-[#F87171] font-semibold'}>
-                {summary.isSingleHand
-                  ? summary.contractMade
-                    ? `Swept 8/8 Tricks (+3 to ${bidderTeamLabel})`
-                    : `Broken on Trick ${summary.singleHandTricksWon + 1} (+3 to Defenders)`
-                  : summary.contractMade
-                    ? `Made (+${summary.roundStake} to ${bidderTeamLabel})`
-                    : `Failed (+${summary.roundStake} to Defenders)`}
+              <span
+                className={`text-right font-semibold ${
+                  isDraw
+                    ? 'text-zinc-300'
+                    : isSurrender
+                      ? 'text-[#F87171]'
+                      : summary.contractMade
+                        ? 'text-emerald-400'
+                        : 'text-[#F87171]'
+                }`}
+              >
+                {isSurrender
+                  ? `${surrenderLoserLabel} Surrendered (+${summary.roundStake} pt${summary.roundStake > 1 ? 's' : ''})`
+                  : isDraw
+                    ? 'Trump hidden at 2nd-last card · 0 pts'
+                    : summary.isSingleHand
+                      ? summary.contractMade
+                        ? `Swept 8/8 Tricks (+3 to ${bidderTeamLabel})`
+                        : `Broken on Trick ${summary.singleHandTricksWon + 1} (+3 to Defenders)`
+                      : summary.contractMade
+                        ? `Made (+${summary.roundStake} to ${bidderTeamLabel})`
+                        : `Failed (+${summary.roundStake} to Defenders)`}
               </span>
             </div>
           </div>
@@ -125,7 +159,7 @@ export function RoundModal({
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <button
               type="button"
               onClick={onLeaveRoom}
@@ -134,26 +168,28 @@ export function RoundModal({
               Leave Room
             </button>
 
-            {isMatchOver ? (
-              <button
-                type="button"
-                data-start="true"
-                onClick={onRematch}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#D92B3A] hover:bg-[#E23645] text-white text-sm font-semibold transition-colors whitespace-nowrap"
-              >
-                <RotateCw className="w-4 h-4" />
-                <span>Play Again</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-start="true"
-                onClick={onNextRound}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#D92B3A] hover:bg-[#E23645] text-white text-sm font-semibold transition-colors whitespace-nowrap"
-              >
-                <span>Deal Next Round</span>
-              </button>
-            )}
+            <div className="flex items-center gap-2 ml-auto">
+              {isMatchOver ? (
+                <button
+                  type="button"
+                  data-start="true"
+                  onClick={onRematch}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#D92B3A] hover:bg-[#E23645] text-white text-sm font-semibold transition-colors whitespace-nowrap"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  <span>Play Again</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-start="true"
+                  onClick={onNextRound}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#D92B3A] hover:bg-[#E23645] text-white text-sm font-semibold transition-colors whitespace-nowrap"
+                >
+                  <span>Deal Next Round</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
