@@ -1,0 +1,10 @@
+{
+  "name": "29 Spider-Edition",
+  "description": "4-player multiplayer 29 trick-taking card game with custom rooms, Spider-Man red & black cards, and live voice chat.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
